@@ -12,23 +12,19 @@ export default async function TasksPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/auth/login");
+    redirect("/auth/login?next=/tasks");
   }
 
   const { data: tasks, error } = await supabase
     .from("tasks")
     .select("*")
     .eq("user_id", user.id)
-    .order("created_at", {
-      ascending: false,
-    });
+    .order("created_at", { ascending: false });
 
   return (
     <TasksClient
-      initialTasks={(tasks ?? []) as Parameters<
-        typeof TasksClient
-      >[0]["initialTasks"]}
-      initialError={error?.message ?? null}
+      initialTasks={(tasks ?? []) as Parameters<typeof TasksClient>[0]["initialTasks"]}
+      initialError={error ? "ไม่สามารถโหลดรายการงานได้ กรุณาลองอีกครั้ง" : null}
     />
   );
 }
