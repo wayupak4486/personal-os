@@ -231,10 +231,7 @@ export default function TasksClient({
           ),
         );
       } else {
-        const temporaryId =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? `temp-${crypto.randomUUID()}`
-            : `temp-${Date.now()}`;
+        const temporaryId = `temp-${crypto.randomUUID()}`;
 
         const optimisticTask: Task = {
           id: temporaryId,

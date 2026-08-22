@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
     formatDurationMinutes,
@@ -65,6 +66,7 @@ const priorityConfig = {
 };
 
 export default function TodayPage() {
+    const router = useRouter();
     const [supabase] = useState(() => createClient());
     const [tasks, setTasks] = useState<Task[]>([]);
     const [goals, setGoals] = useState<ReturnType<typeof mapGoalRecord>[]>([]);
@@ -79,7 +81,7 @@ export default function TodayPage() {
     const [sleepSaving, setSleepSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const today = new Date();
+    const today = useMemo(() => new Date(), []);
     const todayString = formatISODate(today);
 
     const loadData = useCallback(async () => {
@@ -92,7 +94,7 @@ export default function TodayPage() {
             } = await supabase.auth.getUser();
 
             if (!user) {
-                window.location.href = "/auth/login";
+                router.replace("/auth/login");
                 return;
             }
 
@@ -172,8 +174,10 @@ export default function TodayPage() {
         } finally {
             setLoading(false);
         }
-    }, [supabase]);
+    }, [router, supabase]);
 
+    // This effect intentionally synchronizes component state with remote Supabase data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => {
         void loadData();
     }, [loadData]);
