@@ -103,8 +103,7 @@ export default function SleepClient({
         throw settingsError;
       }
 
-      const derivedSettings =
-        getSleepSettingsFromRecord(settingsData);
+      const derivedSettings = getSleepSettingsFromRecord(settingsData);
 
       setSettings(derivedSettings);
       setForm(defaultForm(derivedSettings));
@@ -166,7 +165,6 @@ export default function SleepClient({
         target_wake_time: form.targetWakeTime,
         target_sleep_duration_hours: form.targetDurationHours,
         target_bedtime: targetBedtime,
-        updated_at: new Date().toISOString(),
       };
 
       const { data: existingSettings, error: existingError } =
@@ -204,8 +202,7 @@ export default function SleepClient({
         savedSettings = data as SleepSettingsRecord;
       }
 
-      const nextSettings =
-        getSleepSettingsFromRecord(savedSettings);
+      const nextSettings = getSleepSettingsFromRecord(savedSettings);
 
       setSettings(nextSettings);
       setForm(defaultForm(nextSettings));
@@ -239,6 +236,8 @@ export default function SleepClient({
         throw new Error("กรุณาเข้าสู่ระบบก่อนบันทึกการเข้านอน");
       }
 
+      // อนุญาตให้มีหลาย session ที่เสร็จแล้วในวันเดียว
+      // แต่ห้ามมี session ที่กำลังนอนอยู่พร้อมกัน
       const { data: activeLogs, error: activeError } =
         await supabase
           .from("sleep_logs")
@@ -255,7 +254,7 @@ export default function SleepClient({
 
       if (activeLogs && activeLogs.length > 0) {
         throw new Error(
-          "มีเซสชันการนอนที่กำลังเปิดอยู่แล้ว"
+          "มีเซสชันการนอนที่กำลังเปิดอยู่แล้ว กรุณากด 'ฉันตื่นแล้ว' ก่อน"
         );
       }
 
@@ -287,7 +286,7 @@ export default function SleepClient({
         ...current,
       ]);
 
-      setSuccess("บันทึกเวลาเข้านอนแล้ว");
+      setSuccess("เริ่มเซสชันการนอนใหม่แล้ว");
 
       await refreshSleepData();
     } catch (err) {
@@ -360,7 +359,6 @@ export default function SleepClient({
           wake_time: now.toISOString(),
           duration_minutes: durationMinutes,
           status: "completed",
-          updated_at: now.toISOString(),
         })
         .eq("id", active.id)
         .eq("user_id", user.id)
@@ -382,7 +380,9 @@ export default function SleepClient({
         )
       );
 
-      setSuccess("บันทึกเวลาตื่นแล้ว");
+      setSuccess(
+        `บันทึกเวลาตื่นแล้ว (${formatDurationMinutes(durationMinutes)})`
+      );
 
       await refreshSleepData();
     } catch (err) {
@@ -439,13 +439,13 @@ export default function SleepClient({
         throw new Error("วันหรือเวลาไม่ถูกต้อง");
       }
 
+      // รองรับการนอนข้ามวัน
       if (wakeDate.getTime() <= bedtimeDate.getTime()) {
         wakeDate.setDate(wakeDate.getDate() + 1);
       }
 
       const durationMinutes = Math.round(
-        (wakeDate.getTime() - bedtimeDate.getTime()) /
-          60000
+        (wakeDate.getTime() - bedtimeDate.getTime()) / 60000
       );
 
       const { data, error } = await supabase
@@ -456,7 +456,6 @@ export default function SleepClient({
           wake_time: wakeDate.toISOString(),
           duration_minutes: durationMinutes,
           status: "completed",
-          updated_at: new Date().toISOString(),
         })
         .eq("id", rowId)
         .eq("user_id", user.id)
@@ -499,7 +498,9 @@ export default function SleepClient({
       ? "ยังไม่ได้เข้านอน"
       : summary.status === "SLEEPING"
         ? "กำลังนอน"
-        : "นอนครบแล้ว";
+        : "นอนรอบล่าสุดเสร็จแล้ว";
+
+  const canStartNewSleep = summary.status !== "SLEEPING";
 
   return (
     <main className="min-h-screen bg-[#f6f8fb] text-slate-900">
@@ -676,17 +677,6 @@ export default function SleepClient({
                 </div>
               </div>
 
-              {summary.status === "NO_SLEEP" && (
-                <button
-                  type="button"
-                  onClick={() => void handleStartSleep()}
-                  disabled={saving}
-                  className="w-full rounded-2xl bg-[#2452c5] px-4 py-4 text-base font-semibold text-white shadow-sm hover:bg-[#1d45ac] disabled:opacity-60"
-                >
-                  {saving ? "กำลังบันทึก..." : "เข้านอน"}
-                </button>
-              )}
-
               {summary.status === "SLEEPING" && (
                 <>
                   <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-700">
@@ -710,10 +700,25 @@ export default function SleepClient({
                 </>
               )}
 
+              {canStartNewSleep && (
+                <button
+                  type="button"
+                  onClick={() => void handleStartSleep()}
+                  disabled={saving}
+                  className="w-full rounded-2xl bg-[#2452c5] px-4 py-4 text-base font-semibold text-white shadow-sm hover:bg-[#1d45ac] disabled:opacity-60"
+                >
+                  {saving
+                    ? "กำลังบันทึก..."
+                    : summary.status === "COMPLETED"
+                      ? "เข้านอนรอบใหม่"
+                      : "เข้านอน"}
+                </button>
+              )}
+
               {summary.status === "COMPLETED" && (
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
                   <div className="flex items-center justify-between">
-                    <span>ระยะเวลานอน</span>
+                    <span>รอบล่าสุด</span>
 
                     <span className="font-semibold">
                       {formatDurationMinutes(
@@ -737,6 +742,10 @@ export default function SleepClient({
                       {summary.actualWakeTime ?? "—"}
                     </span>
                   </div>
+
+                  <p className="mt-3 text-xs text-emerald-600">
+                    สามารถเริ่มรอบการนอนใหม่ได้
+                  </p>
                 </div>
               )}
             </div>
@@ -847,7 +856,7 @@ export default function SleepClient({
                   ยังไม่มีประวัติการนอน
                 </div>
               ) : (
-                history.slice(0, 6).map((item) => (
+                history.slice(0, 10).map((item) => (
                   <div
                     key={item.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"

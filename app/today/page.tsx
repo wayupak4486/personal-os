@@ -17,10 +17,10 @@ import {
     WalletCards,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
     formatDurationMinutes,
-    formatClockTime,
     formatISODate,
     getSleepSettingsFromRecord,
     solveSleepStatus,
@@ -66,16 +66,14 @@ const priorityConfig = {
 
 export default function TodayPage() {
     const [supabase] = useState(() => createClient());
-
     const [tasks, setTasks] = useState<Task[]>([]);
     const [goals, setGoals] = useState<ReturnType<typeof mapGoalRecord>[]>([]);
-    const [payments, setPayments] = useState<ReturnType<typeof mapPaymentRecord>[]>([]);
+    const [payments, setPayments] = useState<PaymentRecord[]>([]);
     const [sleepLogs, setSleepLogs] = useState<SleepLogRecord[]>([]);
     const [sleepSettings, setSleepSettings] = useState(() =>
         getSleepSettingsFromRecord(null),
     );
     const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
-
     const [loading, setLoading] = useState(true);
     const [actionId, setActionId] = useState<string | null>(null);
     const [sleepSaving, setSleepSaving] = useState(false);
@@ -83,7 +81,6 @@ export default function TodayPage() {
 
     const today = new Date();
     const todayString = formatISODate(today);
-    const billingMonth = `${monthKey(today)}-01`;
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -92,10 +89,7 @@ export default function TodayPage() {
         try {
             const {
                 data: { user },
-                error: authError,
             } = await supabase.auth.getUser();
-
-            if (authError) throw authError;
 
             if (!user) {
                 window.location.href = "/auth/login";
@@ -115,34 +109,29 @@ export default function TodayPage() {
                     .select("*")
                     .eq("user_id", user.id)
                     .order("created_at", { ascending: false }),
-
                 supabase
                     .from("goals")
                     .select("*")
                     .eq("user_id", user.id)
                     .order("deadline", { ascending: true, nullsFirst: false })
                     .limit(20),
-
                 supabase
                     .from("payment_occurrences")
                     .select("*")
                     .eq("user_id", user.id)
-                    .eq("billing_month", billingMonth)
+                    .order("billing_month", { ascending: false })
                     .order("due_date", { ascending: true }),
-
                 supabase
                     .from("sleep_settings")
                     .select("*")
                     .eq("user_id", user.id)
                     .maybeSingle(),
-
                 supabase
                     .from("sleep_logs")
                     .select("*")
                     .eq("user_id", user.id)
                     .order("created_at", { ascending: false })
-                    .limit(20),
-
+                    .limit(50),
                 supabase
                     .from("workout_sessions")
                     .select("*")
@@ -164,11 +153,7 @@ export default function TodayPage() {
 
             setTasks((taskResult.data ?? []) as Task[]);
             setGoals((goalResult.data ?? []).map((x) => mapGoalRecord(x as GoalRecord)));
-            setPayments(
-                (paymentResult.data ?? []).map((x) =>
-                    mapPaymentRecord(x as PaymentRecord),
-                ),
-            );
+            setPayments((paymentResult.data ?? []) as PaymentRecord[]);
             setSleepSettings(
                 getSleepSettingsFromRecord(
                     sleepSettingsResult.data as SleepSettingsRecord | null,
@@ -187,7 +172,7 @@ export default function TodayPage() {
         } finally {
             setLoading(false);
         }
-    }, [supabase, billingMonth]);
+    }, [supabase]);
 
     useEffect(() => {
         void loadData();
@@ -195,15 +180,13 @@ export default function TodayPage() {
 
     const completedTasks = tasks.filter((task) => task.completed).length;
     const activeTasks = tasks.length - completedTasks;
+    const taskRate =
+        tasks.length === 0 ? 0 : Math.round((completedTasks / tasks.length) * 100);
 
     const todayTasks = useMemo(
         () =>
             tasks
-                .filter(
-                    (task) =>
-                        !task.completed &&
-                        (task.due_date === todayString || task.due_date === null),
-                )
+                .filter((task) => task.due_date === todayString && !task.completed)
                 .sort((a, b) => priorityScore(b.priority) - priorityScore(a.priority))
                 .slice(0, 6),
         [tasks, todayString],
@@ -242,35 +225,59 @@ export default function TodayPage() {
     );
 
     const sleepSummary = solveSleepStatus(sleepLogs, sleepSettings);
-    const paymentSummary = calculatePaymentSummary(payments);
 
-    const upcomingPayments = payments
-        .slice()
-        .sort((a, b) => {
-            const paidA = a.status === "paid" ? 1 : 0;
-            const paidB = b.status === "paid" ? 1 : 0;
-            if (paidA !== paidB) return paidA - paidB;
-            return (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999");
-        })
-        .slice(0, 6);
+    const currentPaymentRecords = useMemo(
+        () => payments.filter((payment) => payment.billing_month?.slice(0, 7) === monthKey(today)),
+        [payments, today],
+    );
 
-    const paidPayments = payments.filter((payment) => payment.status === "paid").length;
+    const overduePaymentRecords = useMemo(
+        () =>
+            payments
+                .filter(
+                    (payment) =>
+                        payment.status !== "paid" &&
+                        Boolean(payment.billing_month) &&
+                        payment.billing_month!.slice(0, 7) < monthKey(today),
+                )
+                .sort((a, b) => {
+                    const monthCompare = (a.billing_month ?? "9999").localeCompare(b.billing_month ?? "9999");
+                    if (monthCompare !== 0) return monthCompare;
+                    return (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
+                }),
+        [payments, today],
+    );
 
-    const taskProgress =
-        tasks.length === 0 ? 0 : Math.round((completedTasks / tasks.length) * 100);
-    const goalProgress = averageGoalProgress(goals);
+    const currentPayments = useMemo(
+        () => currentPaymentRecords.map(mapPaymentRecord),
+        [currentPaymentRecords],
+    );
 
-    const overallProgress = Math.round((taskProgress + goalProgress) / 2);
+    const overduePayments = useMemo(
+        () => overduePaymentRecords.map(mapPaymentRecord),
+        [overduePaymentRecords],
+    );
+
+    const paymentSummary = calculatePaymentSummary(currentPayments);
+    const overdueSummary = calculatePaymentSummary(overduePayments);
+    const totalOutstanding = paymentSummary.remaining + overdueSummary.remaining;
+
+    const upcomingPayments = currentPayments
+        .filter((payment) => payment.status !== "paid")
+        .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))
+        .slice(0, 3);
+
+    const overallProgress = Math.round(
+        (taskRate + averageGoalProgress(goals)) / 2,
+    );
 
     async function toggleTask(task: Task) {
         if (actionId) return;
 
-        const previousTasks = tasks;
-        const nextCompleted = !task.completed;
-
         setActionId(task.id);
         setError(null);
 
+        const nextCompleted = !task.completed;
         setTasks((current) =>
             current.map((item) =>
                 item.id === task.id ? { ...item, completed: nextCompleted } : item,
@@ -278,22 +285,19 @@ export default function TodayPage() {
         );
 
         try {
-            const { data, error: updateError } = await supabase
+            const { error: updateError } = await supabase
                 .from("tasks")
                 .update({ completed: nextCompleted })
                 .eq("id", task.id)
-                .select("*")
-                .single();
+                .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "");
 
             if (updateError) throw updateError;
-
+        } catch (err) {
             setTasks((current) =>
                 current.map((item) =>
-                    item.id === task.id ? (data as Task) : item,
+                    item.id === task.id ? { ...item, completed: task.completed } : item,
                 ),
             );
-        } catch (err) {
-            setTasks(previousTasks);
             setError(
                 err instanceof Error ? err.message : "ไม่สามารถเปลี่ยนสถานะงานได้",
             );
@@ -305,89 +309,46 @@ export default function TodayPage() {
     async function toggleWorkout(workout: WorkoutSession) {
         if (actionId) return;
 
-        const previousWorkouts = workouts;
-        const nextCompleted = !workout.completed;
-
         setActionId(workout.id);
         setError(null);
+
+        const nextCompleted = !workout.completed;
+        const completedAt = nextCompleted ? new Date().toISOString() : null;
 
         setWorkouts((current) =>
             current.map((item) =>
                 item.id === workout.id
-                    ? { ...item, completed: nextCompleted }
+                    ? { ...item, completed: nextCompleted, completedAt }
                     : item,
             ),
         );
 
         try {
-            const { data, error: updateError } = await supabase
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+
+            if (!user) throw new Error("กรุณาเข้าสู่ระบบ");
+
+            const { error: updateError } = await supabase
                 .from("workout_sessions")
-                .update({ completed: nextCompleted })
+                .update({
+                    completed: nextCompleted,
+                    completed_at: completedAt,
+                    updated_at: new Date().toISOString(),
+                })
                 .eq("id", workout.id)
-                .select("*")
-                .single();
+                .eq("user_id", user.id);
 
             if (updateError) throw updateError;
-
-            setWorkouts((current) =>
-                current.map((item) =>
-                    item.id === workout.id
-                        ? mapWorkoutRecord(data as WorkoutRecord)
-                        : item,
-                ),
-            );
         } catch (err) {
-            setWorkouts(previousWorkouts);
+            setWorkouts((current) =>
+                current.map((item) => (item.id === workout.id ? workout : item)),
+            );
             setError(
                 err instanceof Error
                     ? err.message
                     : "ไม่สามารถเปลี่ยนสถานะ Workout ได้",
-            );
-        } finally {
-            setActionId(null);
-        }
-    }
-
-    async function togglePayment(payment: ReturnType<typeof mapPaymentRecord>) {
-        if (actionId) return;
-
-        const previousPayments = payments;
-        const nextStatus = payment.status === "paid" ? "unpaid" : "paid";
-
-        setActionId(payment.id);
-        setError(null);
-
-        setPayments((current) =>
-            current.map((item) =>
-                item.id === payment.id
-                    ? { ...item, status: nextStatus }
-                    : item,
-            ),
-        );
-
-        try {
-            const { data, error: updateError } = await supabase
-                .from("payment_occurrences")
-                .update({ status: nextStatus })
-                .eq("id", payment.id)
-                .select("*")
-                .single();
-
-            if (updateError) throw updateError;
-
-            setPayments((current) =>
-                current.map((item) =>
-                    item.id === payment.id
-                        ? mapPaymentRecord(data as PaymentRecord)
-                        : item,
-                ),
-            );
-        } catch (err) {
-            setPayments(previousPayments);
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "ไม่สามารถเปลี่ยนสถานะการจ่ายเงินได้",
             );
         } finally {
             setActionId(null);
@@ -410,36 +371,73 @@ export default function TodayPage() {
             if (!user) throw new Error("กรุณาเข้าสู่ระบบก่อนบันทึกเวลานอน");
 
             const now = new Date();
-            const sleepDate = formatISODate(now);
+            const baseSleepDate = formatISODate(now);
 
-            const { data: existingLogs, error: existingError } = await supabase
+            const { data: activeLogs, error: activeError } = await supabase
                 .from("sleep_logs")
-                .select(
-                    "id, sleep_date, bedtime, wake_time, duration_minutes, status, created_at",
-                )
+                .select("id, sleep_date, bedtime, status, created_at")
                 .eq("user_id", user.id)
-                .eq("sleep_date", sleepDate)
+                .eq("status", "sleeping")
                 .order("created_at", { ascending: false })
                 .limit(1);
 
-            if (existingError) throw existingError;
+            if (activeError) throw activeError;
 
-            const existingLog = existingLogs?.[0];
-
-            if (existingLog?.status === "sleeping") {
+            if (activeLogs?.[0]) {
                 await loadData();
                 return;
             }
 
-            if (existingLog?.status === "completed") {
-                throw new Error("วันนี้มีบันทึกการนอนที่เสร็จแล้ว หากต้องการแก้ไขให้เข้าเมนู Sleep");
+            const { data: todayLogs, error: todayError } = await supabase
+                .from("sleep_logs")
+                .select("id, sleep_date, bedtime, wake_time, duration_minutes, status, created_at")
+                .eq("user_id", user.id)
+                .eq("sleep_date", baseSleepDate)
+                .order("created_at", { ascending: false })
+                .limit(1);
+
+            if (todayError) throw todayError;
+
+            if (todayLogs?.[0]) {
+                const existing = todayLogs[0];
+
+                if (existing.status === "completed") {
+                    const { error: nextInsertError } = await supabase
+                        .from("sleep_logs")
+                        .insert({
+                            user_id: user.id,
+                            sleep_date: baseSleepDate,
+                            bedtime: now.toISOString(),
+                            wake_time: null,
+                            duration_minutes: null,
+                            status: "sleeping",
+                        });
+
+                    if (nextInsertError) {
+                        if (
+                            nextInsertError.code === "23505" ||
+                            (nextInsertError as { status?: number }).status === 409
+                        ) {
+                            await loadData();
+                            return;
+                        }
+
+                        throw nextInsertError;
+                    }
+
+                    await loadData();
+                    return;
+                }
+
+                await loadData();
+                return;
             }
 
             const { error: insertError } = await supabase
                 .from("sleep_logs")
                 .insert({
                     user_id: user.id,
-                    sleep_date: sleepDate,
+                    sleep_date: baseSleepDate,
                     bedtime: now.toISOString(),
                     wake_time: null,
                     duration_minutes: null,
@@ -447,17 +445,21 @@ export default function TodayPage() {
                 });
 
             if (insertError) {
-                if (insertError.code === "23505") {
+                if (
+                    insertError.code === "23505" ||
+                    (insertError as { status?: number }).status === 409
+                ) {
                     await loadData();
                     return;
                 }
+
                 throw insertError;
             }
 
             await loadData();
         } catch (err) {
             setError(
-                err instanceof Error ? err.message : "ไม่สามารถบันทึกเวลานอนได้",
+                err instanceof Error ? err.message : "ไม่สามารถเริ่มบันทึกการนอนได้",
             );
         } finally {
             setSleepSaving(false);
@@ -473,8 +475,10 @@ export default function TodayPage() {
         try {
             const {
                 data: { user },
+                error: authError,
             } = await supabase.auth.getUser();
 
+            if (authError) throw authError;
             if (!user) throw new Error("กรุณาเข้าสู่ระบบ");
 
             const { data: activeLogs, error: findError } = await supabase
@@ -607,8 +611,8 @@ export default function TodayPage() {
 
                             <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-100">
                                 <div
-                                    className="h-full rounded-full bg-slate-950 transition-all duration-300"
-                                    style={{ width: `${Math.min(100, Math.max(0, overallProgress))}%` }}
+                                    className="h-full rounded-full bg-slate-950 transition-all"
+                                    style={{ width: `${overallProgress}%` }}
                                 />
                             </div>
 
@@ -619,12 +623,7 @@ export default function TodayPage() {
                         </section>
 
                         <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                            <SectionCard
-                                eyebrow="TASKS"
-                                title="งานวันนี้"
-                                icon={<CheckCircle2 size={20} />}
-                                href="/tasks"
-                            >
+                            <SectionCard eyebrow="TASKS" title="งานวันนี้" icon={<CheckCircle2 size={20} />} href="/tasks">
                                 {todayTasks.length === 0 ? (
                                     <Empty text="วันนี้ไม่มีงานค้างที่กำหนดไว้" />
                                 ) : (
@@ -641,12 +640,7 @@ export default function TodayPage() {
                                 )}
                             </SectionCard>
 
-                            <SectionCard
-                                eyebrow="GOALS"
-                                title="เป้าหมายที่กำลังโฟกัส"
-                                icon={<Target size={20} />}
-                                href="/goals"
-                            >
+                            <SectionCard eyebrow="GOALS" title="เป้าหมายที่กำลังโฟกัส" icon={<Target size={20} />} href="/goals">
                                 {focusGoals.length === 0 ? (
                                     <Empty text="ยังไม่มี Goal ที่กำลังทำ" />
                                 ) : (
@@ -655,22 +649,15 @@ export default function TodayPage() {
                                             <div key={goal.id}>
                                                 <div className="flex items-center justify-between gap-3">
                                                     <div className="min-w-0">
-                                                        <p className="truncate text-sm font-semibold">
-                                                            {goal.title}
-                                                        </p>
+                                                        <p className="truncate text-sm font-semibold">{goal.title}</p>
                                                         <p className="mt-1 text-xs text-slate-400">
-                                                            {goal.deadline
-                                                                ? deadlineLabel(goal.deadline)
-                                                                : "ไม่มี Deadline"}
+                                                            {goal.deadline ? deadlineLabel(goal.deadline) : "ไม่มี Deadline"}
                                                         </p>
                                                     </div>
                                                     <span className="text-sm font-bold">{goal.progress}%</span>
                                                 </div>
                                                 <div className="mt-2 h-2 rounded-full bg-slate-100">
-                                                    <div
-                                                        className="h-full rounded-full bg-slate-950 transition-all"
-                                                        style={{ width: `${Math.min(100, Math.max(0, goal.progress))}%` }}
-                                                    />
+                                                    <div className="h-full rounded-full bg-slate-950" style={{ width: `${goal.progress}%` }} />
                                                 </div>
                                             </div>
                                         ))}
@@ -680,12 +667,7 @@ export default function TodayPage() {
                         </div>
 
                         <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                            <SectionCard
-                                eyebrow="WORKOUT"
-                                title="Workout วันนี้"
-                                icon={<Dumbbell size={20} />}
-                                href="/workout"
-                            >
+                            <SectionCard eyebrow="WORKOUT" title="Workout วันนี้" icon={<Dumbbell size={20} />} href="/workout">
                                 {todayWorkouts.length === 0 ? (
                                     <Empty text="วันนี้ยังไม่มี Workout" />
                                 ) : (
@@ -702,60 +684,45 @@ export default function TodayPage() {
                                 )}
                             </SectionCard>
 
-                            <SectionCard
-                                eyebrow="SLEEP"
-                                title="การนอน"
-                                icon={<MoonStar size={20} />}
-                                href="/sleep"
-                            >
+                            <SectionCard eyebrow="SLEEP" title="การนอน" icon={<MoonStar size={20} />} href="/sleep">
                                 <div className="rounded-2xl bg-slate-50 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <div>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="min-w-0">
                                             <p className="text-xs text-slate-400">เมื่อคืน</p>
-                                            <p className="mt-1 text-2xl font-bold">
+                                            <p className="mt-1 text-3xl font-bold tracking-tight">
                                                 {sleepSummary.durationMinutes === null
                                                     ? "—"
                                                     : formatDurationMinutes(sleepSummary.durationMinutes)}
                                             </p>
                                         </div>
-                                        <MoonStar size={24} className="text-slate-400" />
+                                        <MoonStar size={28} className="shrink-0 text-slate-400" />
                                     </div>
 
-                                    <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                                        <div>
-                                            <p className="text-slate-400">เข้านอน</p>
-                                            <p className="mt-1 font-semibold">
-                                                {formatClockTime(sleepSummary.actualBedtime)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-slate-400">ตื่น</p>
-                                            <p className="mt-1 font-semibold">
-                                                {formatClockTime(sleepSummary.actualWakeTime)}
-                                            </p>
-                                        </div>
-                                    </div>
+                                    <div className="mt-4 flex items-center justify-between gap-3">
+                                        <p className="text-xs text-slate-400">
+                                            {sleepSummary.status === "SLEEPING"
+                                                ? "กำลังนอนอยู่"
+                                                : sleepSummary.durationMinutes === null
+                                                    ? "ยังไม่มีข้อมูลการนอน"
+                                                    : "เวลานอนล่าสุด"}
+                                        </p>
 
-                                    <div className="mt-4 flex gap-2">
-                                        {sleepSummary.status === "SLEEPING" ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => void wakeUp()}
-                                                disabled={sleepSaving}
-                                                className="flex-1 rounded-xl bg-slate-950 py-2.5 text-xs font-semibold text-white disabled:opacity-60"
-                                            >
-                                                {sleepSaving ? "กำลังบันทึก..." : "ตื่นแล้ว"}
-                                            </button>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => void startSleep()}
-                                                disabled={sleepSaving}
-                                                className="flex-1 rounded-xl bg-slate-950 py-2.5 text-xs font-semibold text-white disabled:opacity-60"
-                                            >
-                                                {sleepSaving ? "กำลังบันทึก..." : "เริ่มนอน"}
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                void (sleepSummary.status === "SLEEPING"
+                                                    ? wakeUp()
+                                                    : startSleep())
+                                            }
+                                            disabled={sleepSaving}
+                                            className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                                        >
+                                            {sleepSaving
+                                                ? "กำลังบันทึก..."
+                                                : sleepSummary.status === "SLEEPING"
+                                                    ? "ตื่นแล้ว"
+                                                    : "เริ่มนอน"}
+                                        </button>
                                     </div>
                                 </div>
                             </SectionCard>
@@ -767,45 +734,75 @@ export default function TodayPage() {
                                 title="รายการที่ต้องจ่าย"
                                 icon={<WalletCards size={20} />}
                                 href="/payments"
+                                tone="amber"
                             >
-                                <div className="rounded-2xl bg-slate-50 p-4">
-                                    <div className="flex items-end justify-between">
+                                <div className={`rounded-2xl p-4 ${totalOutstanding > 0 ? "bg-amber-50" : "bg-slate-50"}`}>
+                                    <div className="flex items-end justify-between gap-4">
                                         <div>
-                                            <p className="text-xs text-slate-400">ค้างชำระเดือนนี้</p>
-                                            <p className="mt-1 text-2xl font-bold">
-                                                {formatBaht(paymentSummary.remaining)}
-                                            </p>
+                                            <p className="text-xs text-slate-500">ยอดค้างทั้งหมด</p>
+                                            <p className="mt-1 text-3xl font-bold tracking-tight">{formatBaht(totalOutstanding)}</p>
+                                            <p className="mt-1 text-xs text-slate-500">ทั้งยอดเก่าและค่าใช้จ่ายเดือนนี้</p>
                                         </div>
-                                        <WalletCards size={23} className="text-slate-400" />
+                                        <WalletCards size={24} className="text-amber-500" />
                                     </div>
                                 </div>
 
+                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                    <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-3">
+                                        <p className="text-xs text-slate-400">ยอดค้างเดิม</p>
+                                        <p className="mt-1 text-lg font-bold text-amber-700">{formatBaht(overdueSummary.remaining)}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-amber-100 bg-white p-3">
+                                        <p className="text-xs text-slate-400">เดือนนี้</p>
+                                        <p className="mt-1 text-lg font-bold">{formatBaht(paymentSummary.remaining)}</p>
+                                    </div>
+                                </div>
+
+                                {overduePayments.length > 0 && (
+                                    <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-800">มีรายการค้างจากเดือนก่อน</p>
+                                                <p className="mt-0.5 text-xs text-slate-500">ต้องจ่ายเพิ่มจากบิลใหม่</p>
+                                            </div>
+                                            <span className="text-sm font-bold text-amber-700">{formatBaht(overdueSummary.remaining)}</span>
+                                        </div>
+                                        <div className="mt-3 space-y-2">
+                                            {overduePayments.slice(0, 3).map((payment) => (
+                                                <div key={payment.id} className="flex items-center justify-between gap-3 text-xs">
+                                                    <span className="truncate text-slate-600">{payment.note || payment.category}</span>
+                                                    <span className="font-semibold text-slate-700">
+                                                        {formatBaht(payment.amount === null ? null : Math.max(0, payment.amount - payment.paidAmount))}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {overduePayments.length > 3 && (
+                                            <p className="mt-2 text-[11px] text-amber-700">และอีก {overduePayments.length - 3} รายการ</p>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="mt-4 space-y-2">
                                     {upcomingPayments.length === 0 ? (
-                                        <Empty text="ยังไม่มีรายการค่าใช้จ่ายเดือนนี้" />
+                                        <Empty text="เดือนนี้ไม่มีรายการค้างชำระ" />
                                     ) : (
                                         upcomingPayments.map((payment) => (
-                                            <PaymentRow
-                                                key={payment.id}
-                                                payment={payment}
-                                                loading={actionId === payment.id}
-                                                onToggle={() => void togglePayment(payment)}
-                                            />
+                                            <div key={payment.id} className="flex items-center justify-between rounded-xl border border-amber-100 p-3">
+                                                <div>
+                                                    <p className="text-sm font-semibold">{payment.note || payment.category}</p>
+                                                    <p className="mt-1 text-xs text-slate-400">
+                                                        {payment.dueDate ? `ครบกำหนด ${formatShortDate(payment.dueDate)}` : "ไม่ระบุวัน"}
+                                                    </p>
+                                                </div>
+                                                <p className="text-sm font-bold">{formatBaht(payment.amount === null ? null : Math.max(0, payment.amount - payment.paidAmount))}</p>
+                                            </div>
                                         ))
                                     )}
                                 </div>
-
-                                <div className="mt-3 text-xs text-slate-400">
-                                    จ่ายแล้ว {paidPayments} / {payments.length} รายการ
-                                </div>
                             </SectionCard>
 
-                            <SectionCard
-                                eyebrow="OVERDUE"
-                                title="งานเลยกำหนด"
-                                icon={<Clock3 size={20} />}
-                                href="/tasks"
-                            >
+                            <SectionCard eyebrow="OVERDUE" title="งานเลยกำหนด" icon={<Clock3 size={20} />} href="/tasks">
                                 {overdueTasks.length === 0 ? (
                                     <Empty text="ไม่มีงานเลยกำหนด 🎉" />
                                 ) : (
@@ -833,8 +830,7 @@ export default function TodayPage() {
                     <MobileNav icon={<CheckCircle2 size={19} />} label="Tasks" href="/tasks" />
                     <MobileNav icon={<Target size={19} />} label="Goals" href="/goals" />
                     <MobileNav icon={<Dumbbell size={19} />} label="Workout" href="/workout" />
-                    <MobileNav icon={<WalletCards size={19} />} label="Payments" href="/payments" />
-                    <MobileNav icon={<MoreVertical size={19} />} label="More" href="/settings" />
+                    <MobileNav icon={<MoreVertical size={19} />} label="More" href="/payments" />
                 </div>
             </nav>
         </div>
@@ -847,7 +843,7 @@ function NavItem({
     href,
     active = false,
 }: {
-    icon: React.ReactNode;
+    icon: ReactNode;
     label: string;
     href: string;
     active?: boolean;
@@ -873,7 +869,7 @@ function MobileNav({
     href,
     active = false,
 }: {
-    icon: React.ReactNode;
+    icon: ReactNode;
     label: string;
     href: string;
     active?: boolean;
@@ -917,27 +913,43 @@ function SectionCard({
     icon,
     href,
     children,
+    tone = "default",
 }: {
     eyebrow: string;
     title: string;
-    icon: React.ReactNode;
+    icon: ReactNode;
     href: string;
-    children: React.ReactNode;
+    children: ReactNode;
+    tone?: "default" | "amber";
 }) {
+    const amber = tone === "amber";
+
     return (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <section
+            className={`rounded-3xl border bg-white p-5 shadow-sm sm:p-6 ${
+                amber ? "border-amber-200" : "border-slate-200"
+            }`}
+        >
             <div className="flex items-center justify-between gap-4">
                 <div>
-                    <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">
+                    <p
+                        className={`text-xs font-medium uppercase tracking-[0.16em] ${
+                            amber ? "text-amber-500" : "text-slate-400"
+                        }`}
+                    >
                         {eyebrow}
                     </p>
                     <h2 className="mt-1 text-xl font-bold">{title}</h2>
                 </div>
                 <div className="flex items-center gap-3">
-                    {icon}
+                    <span className={amber ? "text-amber-500" : "text-slate-950"}>{icon}</span>
                     <Link
                         href={href}
-                        className="text-xs font-semibold text-slate-400 hover:text-slate-950"
+                        className={`text-xs font-semibold ${
+                            amber
+                                ? "text-amber-600 hover:text-amber-800"
+                                : "text-slate-400 hover:text-slate-950"
+                        }`}
                     >
                         ดูทั้งหมด →
                     </Link>
@@ -945,39 +957,6 @@ function SectionCard({
             </div>
             <div className="mt-5">{children}</div>
         </section>
-    );
-}
-
-function CheckButton({
-    checked,
-    loading,
-    onClick,
-    label,
-}: {
-    checked: boolean;
-    loading: boolean;
-    onClick: () => void;
-    label: string;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={loading}
-            className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-wait"
-            aria-label={label}
-            title={label}
-        >
-            {loading ? (
-                <Loader2 size={25} className="animate-spin text-slate-400" />
-            ) : checked ? (
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white transition">
-                    <Check size={16} strokeWidth={3} />
-                </span>
-            ) : (
-                <span className="block h-7 w-7 rounded-full border-2 border-slate-200 bg-white transition hover:border-slate-400" />
-            )}
-        </button>
     );
 }
 
@@ -996,28 +975,34 @@ function TaskRow({
         task.priority === "high" || task.priority === "medium" || task.priority === "low"
             ? task.priority
             : "medium";
-
     const priority = priorityConfig[priorityKey];
 
     return (
         <div className="flex items-center gap-3 rounded-xl border border-slate-100 p-3">
-            <CheckButton
-                checked={task.completed}
-                loading={loading}
+            <button
+                type="button"
                 onClick={onToggle}
-                label="ทำงานนี้เสร็จ"
-            />
+                disabled={loading}
+                className="shrink-0"
+                aria-label="ทำงานเสร็จ"
+            >
+                {loading ? (
+                    <Loader2 size={22} className="animate-spin text-slate-400" />
+                ) : task.completed ? (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                        <Check size={15} strokeWidth={3} />
+                    </span>
+                ) : (
+                    <span className="block h-6 w-6 rounded-full border-2 border-slate-200" />
+                )}
+            </button>
 
             <div className="min-w-0 flex-1">
-                <p className={`truncate text-sm font-semibold ${task.completed ? "text-slate-400 line-through" : ""}`}>
-                    {task.title}
-                </p>
+                <p className="truncate text-sm font-semibold">{task.title}</p>
                 <div className="mt-1 flex items-center gap-2">
                     <span className={`h-2 w-2 rounded-full ${priority.dot}`} />
                     <span className={`text-xs ${priority.text}`}>{priority.label}</span>
-                    {overdue && (
-                        <span className="text-xs font-semibold text-red-600">เลยกำหนด</span>
-                    )}
+                    {overdue && <span className="text-xs font-semibold text-red-600">เลยกำหนด</span>}
                 </div>
             </div>
 
@@ -1042,17 +1027,26 @@ function WorkoutRow({
 }) {
     return (
         <div className="flex items-center gap-3 rounded-xl border border-slate-100 p-3">
-            <CheckButton
-                checked={workout.completed}
-                loading={loading}
+            <button
+                type="button"
                 onClick={onToggle}
-                label="เปลี่ยนสถานะ Workout"
-            />
+                disabled={loading}
+                className="shrink-0"
+                aria-label="เปลี่ยนสถานะ Workout"
+            >
+                {loading ? (
+                    <Loader2 size={22} className="animate-spin text-slate-400" />
+                ) : workout.completed ? (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                        <Check size={15} strokeWidth={3} />
+                    </span>
+                ) : (
+                    <span className="block h-6 w-6 rounded-full border-2 border-slate-200" />
+                )}
+            </button>
 
             <div className="min-w-0 flex-1">
-                <p className={`truncate text-sm font-semibold ${workout.completed ? "text-slate-400 line-through" : ""}`}>
-                    {workout.name}
-                </p>
+                <p className="truncate text-sm font-semibold">{workout.name}</p>
                 <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
                     <span>{workout.category}</span>
                     {workout.scheduledTime && <span>{workout.scheduledTime.slice(0, 5)}</span>}
@@ -1062,47 +1056,6 @@ function WorkoutRow({
             </div>
 
             {workout.completed && <CheckCircle2 size={18} className="text-emerald-500" />}
-        </div>
-    );
-}
-
-function PaymentRow({
-    payment,
-    loading,
-    onToggle,
-}: {
-    payment: ReturnType<typeof mapPaymentRecord>;
-    loading: boolean;
-    onToggle: () => void;
-}) {
-    const paid = payment.status === "paid";
-
-    return (
-        <div className="flex items-center gap-3 rounded-xl border border-slate-100 p-3">
-            <CheckButton
-                checked={paid}
-                loading={loading}
-                onClick={onToggle}
-                label={paid ? "เปลี่ยนเป็นยังไม่จ่าย" : "ทำเครื่องหมายว่าจ่ายแล้ว"}
-            />
-
-            <div className="min-w-0 flex-1">
-                <p className={`truncate text-sm font-semibold ${paid ? "text-slate-400 line-through" : ""}`}>
-                    {payment.note || payment.category}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                    {payment.dueDate
-                        ? `ครบกำหนด ${formatShortDate(payment.dueDate)}`
-                        : "ไม่ระบุวัน"}
-                </p>
-            </div>
-
-            <div className="text-right">
-                <p className="text-sm font-bold">{formatBaht(payment.amount)}</p>
-                <p className={`mt-1 text-[11px] font-semibold ${paid ? "text-emerald-600" : "text-orange-600"}`}>
-                    {paid ? "จ่ายแล้ว" : "ยังไม่จ่าย"}
-                </p>
-            </div>
         </div>
     );
 }
@@ -1137,7 +1090,6 @@ function formatShortDate(value: string) {
 
 function deadlineLabel(deadline: string) {
     const days = daysUntilDeadline(deadline);
-
     if (days === null) return "ไม่มี Deadline";
     if (days < 0) return `เลยกำหนด ${Math.abs(days)} วัน`;
     if (days === 0) return "ครบกำหนดวันนี้";
