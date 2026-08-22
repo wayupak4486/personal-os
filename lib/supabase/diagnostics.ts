@@ -23,7 +23,14 @@ function readProperty(value: object, key: string): unknown {
 function toText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+
   try {
     return JSON.stringify(value) ?? String(value);
   } catch {
@@ -33,11 +40,29 @@ function toText(value: unknown): string | null {
 
 export function serializeSupabaseError(error: unknown): string {
   if (error === null || error === undefined) {
-    return JSON.stringify({ name: null, message: null, details: null, hint: null, code: null, status: null, stack: null, cause: null });
+    return JSON.stringify({
+      name: null,
+      message: null,
+      details: null,
+      hint: null,
+      code: null,
+      status: null,
+      stack: null,
+      cause: null,
+    });
   }
 
   if (typeof error !== "object" && typeof error !== "function") {
-    return JSON.stringify({ name: null, message: String(error), details: null, hint: null, code: null, status: null, stack: null, cause: null });
+    return JSON.stringify({
+      name: null,
+      message: String(error),
+      details: null,
+      hint: null,
+      code: null,
+      status: null,
+      stack: null,
+      cause: null,
+    });
   }
 
   const source = error as object;
@@ -59,12 +84,23 @@ export function serializeSupabaseError(error: unknown): string {
   return JSON.stringify(diagnostic);
 }
 
-export function supabaseDiagnosticContext(operation: string, projectRef: string, userId: string | null, userEmail: string | null) {
+/**
+ * Safe diagnostic context for development logs.
+ *
+ * Keep the legacy userEmail argument for backwards compatibility with
+ * existing callers, but deliberately never serialize it. Authentication
+ * diagnostics should not put personal contact data into application logs.
+ */
+export function supabaseDiagnosticContext(
+  operation: string,
+  projectRef: string,
+  userId: string | null,
+  _userEmail: string | null,
+) {
   return JSON.stringify({
     operation,
     projectRef,
     hasSession: Boolean(userId),
     userId,
-    userEmail,
   });
 }
