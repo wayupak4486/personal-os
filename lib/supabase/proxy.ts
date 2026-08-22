@@ -39,7 +39,6 @@ export async function updateSession(request: NextRequest) {
     if (process.env.NODE_ENV !== "production" && (user || authError)) {
         console.info("Supabase proxy auth", {
             userId: user?.id,
-            email: user?.email,
             error: authError?.message,
         });
     }
