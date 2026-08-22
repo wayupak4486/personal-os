@@ -324,18 +324,37 @@ export function getSleepSummary(settings: SleepSettings, log: SleepLogRecord | n
   };
 }
 
-export function solveSleepStatus(logs: SleepLogRecord[] | null | undefined, settings: SleepSettings): SleepSummary {
-  const latestLog = logs?.find((log) => log.status === "sleeping") ?? logs?.[0] ?? null;
-  const current = getSleepSummary(settings, latestLog);
+export function solveSleepStatus(
+  logs: SleepLogRecord[] | null | undefined,
+  settings: SleepSettings,
+): SleepSummary {
+  const safeLogs = [...(logs ?? [])];
 
-  if (current.status === "COMPLETED") {
-    return current;
+  /*
+   * Prefer an active sleeping session.
+   */
+  const sleepingLog = safeLogs.find(
+    (log) => log.status === "sleeping",
+  );
+
+  if (sleepingLog) {
+    return getSleepSummary(settings, sleepingLog);
   }
 
-  if (current.status === "SLEEPING") {
-    return current;
+  /*
+   * Otherwise use the newest completed record.
+   */
+  const completedLog = safeLogs.find(
+    (log) => log.status === "completed",
+  );
+
+  if (completedLog) {
+    return getSleepSummary(settings, completedLog);
   }
 
+  /*
+   * Nothing recorded yet.
+   */
   return {
     status: "NO_SLEEP",
     targetWakeTime: settings.targetWakeTime,
@@ -343,7 +362,8 @@ export function solveSleepStatus(logs: SleepLogRecord[] | null | undefined, sett
     actualBedtime: null,
     actualWakeTime: null,
     durationMinutes: null,
-    targetDurationMinutes: settings.targetSleepDurationHours * 60,
+    targetDurationMinutes:
+      settings.targetSleepDurationHours * 60,
     timeDiffMinutes: null,
     wakeTimingLabel: "รอการบันทึก",
     durationStatusLabel: "รอการบันทึก",
