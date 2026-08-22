@@ -1,0 +1,904 @@
+PERSONAL OS — MASTER SPEC V1.0
+Date: 21 August 2026
+Status: Planning Complete / Ready for Development
+
+==================================================
+1. PRODUCT VISION
+==================================================
+
+Personal OS is a personal web app for managing life in one system.
+
+Core question:
+“What is most important today, and where am I spending my time, energy, and resources?”
+
+Core areas:
+- Goals
+- Tasks
+- 80/20 prioritization
+- Time tracking
+- Workout
+- Gaming
+- Payments & bills
+- Daily planning
+- Daily review
+- Free data analysis
+- Future AI companion
+
+The product must stay minimal and useful. It must not become an app with so many features that using the system becomes work itself.
+
+
+==================================================
+2. PRODUCT PHILOSOPHY
+==================================================
+
+2.1 80/20 First
+Focus on the small number of activities that create the largest results.
+
+2.2 Daily Use First
+The app should be useful immediately when opened in the morning.
+
+2.3 Minimal Complexity
+Every feature must have a clear purpose.
+
+2.4 Free First
+V1 must work without paid AI APIs or token costs.
+
+2.5 AI Later
+AI is an optional future layer, not a dependency for V1.
+
+2.6 Personal First, Multi-user Ready
+V1 is primarily for one person, but data uses user_id so multi-user support can be added later.
+
+
+==================================================
+3. CORE LOOP
+==================================================
+
+Morning
+  -> See Today
+  -> Choose Main Focus
+  -> Work / Workout / Gaming / Payments
+  -> Track
+  -> Daily Review
+  -> Prepare Tomorrow
+  -> Next Morning
+
+
+==================================================
+4. V1 SCOPE
+==================================================
+
+Included:
+- Today / Morning Mode
+- Goals
+- Tasks
+- 80/20 Analysis
+- Manual Time Tracking
+- Workout
+- Gaming
+- Payments & Bills
+- Daily Review
+- Free Data Analysis
+- Rule-based Companion
+- Thai / English
+- Supabase Auth + RLS
+- Future-AI-ready data structure
+
+
+==================================================
+5. TODAY / MORNING MODE
+==================================================
+
+Today is the home page.
+
+Show:
+- Date
+- Main Focus
+- Important Tasks
+- Goal Progress
+- Workout Today
+- Gaming Plan
+- Upcoming Payments
+- Quick Actions
+
+Goal:
+Open the app and immediately know what to do today.
+
+
+==================================================
+6. GOALS
+==================================================
+
+Goals represent high-level outcomes.
+
+Example:
+Goal: Launch Personal Website
+  -> Research
+  -> Design
+  -> Build
+  -> Deploy
+
+Goal fields:
+- Title
+- Description
+- Status
+- Priority
+- Start Date
+- Target Date
+- Progress
+
+
+==================================================
+7. TASKS
+==================================================
+
+Tasks are actionable units.
+
+Support:
+- Create
+- Edit
+- Complete
+- Cancel
+- Archive
+- Priority
+- Impact
+- Effort
+- Due Date
+- Scheduled Date
+- Goal relation
+- Postpone
+- Completion tracking
+
+
+==================================================
+8. 80/20 ANALYSIS
+==================================================
+
+80/20 is an analysis layer, not a separate table.
+
+Use:
+- Impact
+- Priority
+- Goal relevance
+- Effort
+- Urgency
+- Completion
+- Time spent
+
+Purpose:
+Identify high-impact tasks and help decide what should be done first.
+
+The algorithm can change without changing the database.
+
+
+==================================================
+9. TIME TRACKING
+==================================================
+
+Use manual Start / Stop.
+
+Flow:
+Start -> Work -> Stop
+
+Store:
+- Task
+- Start time
+- End time
+- Duration
+
+Purpose:
+Understand not only what was completed, but where time was actually spent.
+
+
+==================================================
+10. WORKOUT
+==================================================
+
+Workout is part of the same Personal OS.
+
+Support:
+- Exercises
+- Workout Plans
+- Workout Days
+- Target Sets
+- Target Reps
+- Target Weight
+- Rest
+- Workout Sessions
+- Actual Sets
+- Reps
+- Weight
+- History
+- Progress analysis
+
+
+==================================================
+11. GAMING
+==================================================
+
+Goal:
+Play games intentionally rather than losing large amounts of time without awareness.
+
+Support:
+- Games
+- Platforms
+- Game Goals
+- Gaming Sessions
+- Duration
+- Session Type
+- Result
+- Rank Before
+- Rank After
+- Score Change
+- Notes
+- Gaming time budget
+
+Example:
+League of Legends
+Goal: Gold -> Platinum
+
+
+==================================================
+12. PAYMENTS & BILLS
+==================================================
+
+This is NOT a full accounting system.
+
+Purpose:
+Know what needs to be paid and its current status.
+
+Support:
+- Recurring payments
+- Variable payments
+- Unknown amount
+- Unknown due date
+- Reminders
+- Paid
+- Partial
+- Overdue
+- Outstanding balance
+- Payment history
+
+Important real-life case:
+A rent/dorm payment may not have a known amount or due date yet.
+
+Example:
+Dorm rent
+Old outstanding: 3,500 THB
+Current amount: unknown
+Due date: unknown
+
+Later:
+Current amount: 4,200 THB
+Due date: 5 Sep
+Total: 7,700 THB
+
+The system must allow “unknown” instead of forcing fake values.
+
+
+==================================================
+13. DAILY REVIEW
+==================================================
+
+At the end of the day:
+- Was Main Focus completed?
+- What went well?
+- What went wrong?
+- Workout completed?
+- Gaming time?
+- Notes
+- What should happen tomorrow?
+
+Optional output:
+Tomorrow Top 3
+
+
+==================================================
+14. LANGUAGE
+==================================================
+
+V1 supports:
+- Thai
+- English
+
+Rules:
+- UI is translatable
+- User-created content is not automatically translated
+- Locale and timezone are supported
+- Architecture can support more languages later
+
+
+==================================================
+15. FREE DATA INTELLIGENCE
+==================================================
+
+V1 does NOT require AI.
+
+Analyze database data using SQL, application logic, and rules.
+
+Productivity:
+- Tasks completed
+- Overdue tasks
+- Postponed tasks
+- High-impact completion
+- Time spent
+
+80/20:
+- High-impact tasks
+- Impact vs effort
+- Goal relevance
+- Time vs result
+
+Workout:
+- Sessions
+- Frequency
+- Weight progress
+- Volume
+- Consistency
+
+Gaming:
+- Hours
+- Sessions
+- Win rate
+- Rank progress
+- Gaming budget
+
+Payments:
+- Upcoming payments
+- Overdue payments
+- Paid payments
+- Outstanding amount
+
+
+==================================================
+16. RULE-BASED COMPANION
+==================================================
+
+V1 may provide simple personality without AI.
+
+Examples:
+
+Task completed:
+“เก่งมาก วันนี้งานสำคัญเสร็จแล้ว 👏”
+
+Gaming over budget:
+“ไหนบอกว่าจะเล่น 90 นาที 😑”
+
+Task postponed repeatedly:
+“งานนี้ถูกเลื่อนมาหลายวันแล้วนะ 😐”
+
+Workout completed:
+“วันนี้ไม่เท 💪”
+
+The goal is to test the Companion experience before paying for AI.
+
+
+==================================================
+17. FUTURE AI
+==================================================
+
+Future AI may:
+- Analyze long-term patterns
+- Explain behavior
+- Predict patterns
+- Suggest plans
+- Act as a personal companion
+- Remember useful context
+
+AI must remain an optional layer.
+
+If AI is unavailable, Personal OS must still work normally.
+
+
+==================================================
+18. V1 NON-SCOPE
+==================================================
+
+Do NOT build these in V1:
+
+AI:
+- AI Chat
+- Full AI Coach
+- Voice AI
+- AI Memory
+- AI API
+
+Finance:
+- Bank integration
+- Credit card integration
+- Investment
+- Accounting
+- Tax
+- Advanced budgeting
+
+Productivity:
+- Advanced calendar
+- Complex habit system
+- Team collaboration
+- Enterprise project management
+
+Health:
+- Nutrition
+- Wearables
+- Medical tracking
+
+Gaming:
+- Automatic game APIs
+- Game account integrations
+- Social gaming
+
+Platform:
+- Native mobile app
+- Social network
+
+
+==================================================
+19. IDEA PARKING LOT
+==================================================
+
+New ideas should NOT automatically enter V1.
+
+Store them first in an Idea Parking Lot.
+
+Examples:
+- AI Voice Companion
+- AI emotion analysis
+- Game API
+- Calendar integration
+- Advanced AI life analysis
+
+Rule:
+Save ideas without immediately building them.
+
+
+==================================================
+20. SCOPE GATE
+==================================================
+
+Before adding a feature, ask:
+
+1. Does it support the Core Loop?
+2. Is it necessary for V1?
+3. How much complexity does it add?
+
+Decision:
+High value + low complexity -> Consider V1
+High value + high complexity -> Future
+Low value + high complexity -> Reject
+
+
+==================================================
+21. DATABASE
+==================================================
+
+Database: Supabase PostgreSQL
+
+Tables:
+
+profiles
+user_settings
+
+goals
+tasks
+daily_focus
+task_time_entries
+daily_reviews
+
+exercises
+workout_plans
+workout_plan_days
+workout_plan_exercises
+workout_sessions
+workout_sets
+
+games
+game_goals
+gaming_sessions
+
+payment_templates
+payment_occurrences
+
+Important:
+- No separate users table; use Supabase Auth
+- No analytics table
+- No 80/20 table
+- No outstanding_balance column
+- No AI memory table in V1
+- No notifications table initially
+
+Calculated values should be calculated rather than duplicated.
+
+
+==================================================
+22. DATABASE RELATIONSHIPS
+==================================================
+
+AUTH USER
+  -> PROFILE
+  -> SETTINGS
+  -> GOALS
+  -> TASKS
+  -> DAILY FOCUS
+  -> DAILY REVIEWS
+  -> TIME ENTRIES
+  -> WORKOUT
+  -> GAMING
+  -> PAYMENTS
+
+GOALS
+  -> TASKS
+
+TASKS
+  -> TIME ENTRIES
+
+DAILY FOCUS
+  -> MAIN TASK
+
+WORKOUT PLAN
+  -> WORKOUT DAYS
+  -> PLAN EXERCISES
+  -> EXERCISES
+  -> WORKOUT SESSIONS
+  -> WORKOUT SETS
+
+GAMES
+  -> GAME GOALS
+  -> GAMING SESSIONS
+
+PAYMENT TEMPLATE
+  -> PAYMENT OCCURRENCES
+
+
+==================================================
+23. SECURITY
+==================================================
+
+Use Supabase Row Level Security (RLS).
+
+All personal data must be isolated by user_id.
+
+Rule:
+auth.uid() must match the row owner.
+
+V1 is single-user in practice, but architecture is multi-user ready.
+
+
+==================================================
+24. TECH STACK
+==================================================
+
+Frontend:
+- Next.js
+- React
+- TypeScript
+
+UI:
+- Tailwind CSS
+- shadcn/ui
+
+Backend / Database:
+- Supabase
+- PostgreSQL
+- Supabase Auth
+- RLS
+- Edge Functions only if needed later
+
+Hosting:
+- Vercel Free Tier
+
+Language:
+- TypeScript
+
+
+==================================================
+25. DESIGN SYSTEM
+==================================================
+
+Visual direction:
+- Minimal
+- Clean
+- Calm
+- Fast
+- Readable
+- Modern
+
+Primary color:
+BLUE
+
+Main supporting color:
+WHITE
+
+Purple is NOT the primary brand color.
+
+Avoid:
+- Too many colors
+- Excessive cards
+- Dense dashboards
+- Excessive animation
+- Unnecessary decoration
+
+
+==================================================
+26. NAVIGATION
+==================================================
+
+Home:
+Today
+
+Main:
+Goals
+Tasks
+80/20
+Workout
+Gaming
+Payments
+Progress
+
+System:
+Settings
+
+
+==================================================
+27. UX PRINCIPLES
+==================================================
+
+- Reduce clicks
+- Quick Add
+- Quick Complete
+- Quick Start Timer
+- Quick Start Workout
+- Quick Log Gaming
+- Quick Mark Paid
+- Clear hierarchy
+- Useful empty states
+- Clear loading states
+- Clear error states
+
+The app should feel fast enough for daily use.
+
+
+==================================================
+28. ANALYTICS ARCHITECTURE
+==================================================
+
+Database
+  -> SQL / Data Queries
+  -> Analytics Engine
+  -> Scores / Patterns / Summaries
+  -> Rule Engine
+  -> Insights
+  -> UI / Companion
+
+This layer should work without AI or paid tokens.
+
+
+==================================================
+29. FUTURE AI ARCHITECTURE
+==================================================
+
+Personal OS
+  -> Database
+  -> Data Analysis
+  -> AI Brain
+  -> Analyze / Explain / Predict
+  -> AI Companion
+
+AI is an optional future layer.
+
+
+==================================================
+30. DEVELOPMENT ROADMAP
+==================================================
+
+M0 — Foundation
+- Setup project
+- Next.js
+- TypeScript
+- Tailwind
+- shadcn/ui
+- Basic structure
+- Git
+
+M1 — App Shell
+- Sidebar
+- Navigation
+- Header
+- Responsive layout
+- Theme
+- Design tokens
+
+M2 — Supabase
+- Supabase project
+- Database
+- Migrations
+- Auth
+- RLS
+- Environment variables
+
+M3 — Tasks + Time Tracking
+- Task CRUD
+- Priority
+- Impact
+- Effort
+- Goal relation
+- Start/Stop timer
+- History
+
+M4 — Goals + 80/20
+- Goals
+- Progress
+- Impact analysis
+- 80/20 score
+- High-impact tasks
+
+M5 — Today / Morning Mode
+- Main Focus
+- Tasks
+- Goal
+- Workout
+- Gaming
+- Payments
+
+M6 — Workout
+- Exercises
+- Plans
+- Days
+- Sessions
+- Sets
+- History
+- Progress
+
+M7 — Gaming
+- Games
+- Game Goals
+- Sessions
+- Rank tracking
+- Time tracking
+- Gaming budget
+
+M8 — Payments
+- Recurring payments
+- Variable payments
+- Unknown amount
+- Unknown due date
+- Outstanding balance
+- Payment history
+- Reminders
+
+M9 — Analytics + Review
+- Weekly analytics
+- Productivity
+- Workout
+- Gaming
+- Payments
+- Daily Review
+- Rule Engine
+- Basic Companion
+
+M10 — Thai / English + Polish
+- i18n
+- Responsive refinement
+- Loading states
+- Empty states
+- Error states
+- Accessibility
+- Performance
+
+M11 — Deploy
+- Production environment
+- Supabase production
+- Vercel
+- Security review
+- Final testing
+- Backup strategy
+
+
+==================================================
+31. DEFINITION OF DONE
+==================================================
+
+A feature is complete only when:
+
+[ ] It works
+[ ] UI follows Design System
+[ ] Responsive
+[ ] Database works correctly
+[ ] RLS is correct
+[ ] Loading state exists
+[ ] Empty state exists
+[ ] Error state exists
+[ ] No console errors
+[ ] Edge cases tested
+[ ] Existing features still work
+[ ] No unnecessary scope expansion
+
+
+==================================================
+32. DEVELOPMENT RULE
+==================================================
+
+Build one milestone at a time.
+
+After each milestone report:
+
+- What was completed
+- How to test
+- What to check
+- Bugs found
+- Next step
+
+Stop after each milestone for review before continuing.
+
+
+==================================================
+33. CHANGE LOG
+==================================================
+
+2026-08-21
+- Added Payment Tracking
+- Supports unknown amount and unknown due date
+- Supports outstanding balances
+- Confirmed manual Time Tracking
+- Added Free Data Intelligence
+- Added Rule-based Companion concept
+- Added Thai / English
+- Confirmed Supabase + PostgreSQL
+- Confirmed blue + white minimal design
+- Locked V1 scope
+
+
+==================================================
+34. ARCHITECTURE CHANGE RULE
+==================================================
+
+Do not change architecture simply because a newer or more interesting approach exists.
+
+Architecture changes require a real reason involving:
+- Performance
+- Security
+- Maintainability
+- Scalability
+- Cost
+- Product requirements
+
+
+==================================================
+35. MOST IMPORTANT PRODUCT RULE
+==================================================
+
+Personal OS must never become:
+
+“A system that takes more time to manage than real life.”
+
+Every feature must answer:
+
+“Does this improve the user's life, or does it only make the software look more sophisticated?”
+
+If it only makes the software look sophisticated:
+Do not build it.
+
+
+==================================================
+36. CURRENT STATUS
+==================================================
+
+Product planning: ~95% complete
+
+Database Schema: LOCKED
+Time Tracking: LOCKED
+V1 Scope: LOCKED
+Tech Stack: LOCKED
+Design Direction: LOCKED
+Roadmap: LOCKED
+
+Next:
+M0 — Foundation
+
+Important:
+New ideas go to the Idea Parking Lot first.
+Do not automatically add them to V1.
+
+
+==================================================
+END OF PERSONAL OS MASTER SPEC V1.0
+==================================================
