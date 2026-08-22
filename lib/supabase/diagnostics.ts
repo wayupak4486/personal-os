@@ -97,6 +97,8 @@ export function supabaseDiagnosticContext(
   userId: string | null,
   _userEmail: string | null,
 ) {
+  void _userEmail;
+
   return JSON.stringify({
     operation,
     projectRef,
