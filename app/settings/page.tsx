@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BarChart3, CheckCircle2, Dumbbell, Home, Loader2, LogOut, MoonStar, Settings as SettingsIcon, Target, WalletCards } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [supabase] = useState(() => createClient());
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -18,13 +20,11 @@ export default function SettingsPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) throw authError;
       if (!user) {
-        window.location.href = "/auth/login?next=/settings";
+        router.replace("/auth/login?next=/settings");
         return;
       }
       setEmail(user.email ?? "");
@@ -43,8 +43,10 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [router, supabase]);
 
+  // This effect intentionally synchronizes component state with remote Supabase data.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
   async function saveSettings() {
@@ -80,7 +82,7 @@ export default function SettingsPage() {
     try {
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) throw signOutError;
-      window.location.href = "/auth/login";
+      router.replace("/auth/login");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "ไม่สามารถออกจากระบบได้");
       setLoggingOut(false);
