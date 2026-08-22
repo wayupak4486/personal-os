@@ -199,7 +199,11 @@ export default function TodayPage() {
     const todayTasks = useMemo(
         () =>
             tasks
-                .filter((task) => task.due_date === todayString && !task.completed)
+                .filter(
+                    (task) =>
+                        !task.completed &&
+                        (task.due_date === todayString || task.due_date === null),
+                )
                 .sort((a, b) => priorityScore(b.priority) - priorityScore(a.priority))
                 .slice(0, 6),
         [tasks, todayString],
