@@ -9,6 +9,14 @@ type LoginPageProps = {
   }>;
 };
 
+function getSafeNext(value: string | undefined): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/tasks";
+  }
+
+  return value;
+}
+
 export default async function LoginPage({
   searchParams,
 }: LoginPageProps) {
@@ -39,12 +47,7 @@ export default async function LoginPage({
       );
     }
 
-    const next =
-      params.next && params.next.startsWith("/")
-        ? params.next
-        : "/tasks";
-
-    redirect(next);
+    redirect(getSafeNext(params.next));
   }
 
   return (
