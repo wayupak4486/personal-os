@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BarChart3, CheckCircle2, Dumbbell, Home, Loader2, MoonStar, MoreVertical, Target, WalletCards } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { averageGoalProgress, mapGoalRecord, type GoalRecord } from "@/lib/goals";
@@ -13,17 +14,17 @@ type Task = { completed: boolean; due_date: string | null; created_at: string };
 type Data = { tasks: Task[]; goals: GoalRecord[]; workouts: WorkoutRecord[]; sleep: SleepLogRecord[]; payments: PaymentRecord[] };
 
 export default function ProgressPage() {
+  const router = useRouter();
   const [supabase] = useState(() => createClient());
   const [data, setData] = useState<Data>({ tasks: [], goals: [], workouts: [], sleep: [], payments: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) throw authError;
-      if (!user) { window.location.href = "/auth/login?next=/progress"; return; }
+      if (!user) { router.replace("/auth/login?next=/progress"); return; }
       const [tasks, goals, workouts, sleep, payments] = await Promise.all([
         supabase.from("tasks").select("completed, due_date, created_at").eq("user_id", user.id),
         supabase.from("goals").select("*").eq("user_id", user.id),
@@ -36,8 +37,10 @@ export default function ProgressPage() {
       setData({ tasks: (tasks.data ?? []) as Task[], goals: (goals.data ?? []) as GoalRecord[], workouts: (workouts.data ?? []) as WorkoutRecord[], sleep: (sleep.data ?? []) as SleepLogRecord[], payments: (payments.data ?? []) as PaymentRecord[] });
     } catch (caught) { setError(caught instanceof Error ? caught.message : "ไม่สามารถโหลด Progress ได้"); }
     finally { setLoading(false); }
-  }, [supabase]);
+  }, [router, supabase]);
 
+  // This effect intentionally synchronizes component state with remote Supabase data.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
   const startDate = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().slice(0, 10); }, []);
