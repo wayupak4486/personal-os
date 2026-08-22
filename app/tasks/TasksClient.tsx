@@ -1,6 +1,6 @@
+
 "use client";
 
-import Link from "next/link";
 import {
   CalendarDays,
   Check,
@@ -20,23 +20,15 @@ import {
   BarChart3,
   X,
   Loader2,
-  WalletCards,
 } from "lucide-react";
-import {
-  FormEvent,
-  ReactNode,
-  SetStateAction,
-  Dispatch,
-  useDeferredValue,
-  useMemo,
-  useState,
-} from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Priority = "low" | "medium" | "high";
 
 type Task = {
   id: string;
+  user_id: string;
   title: string;
   description: string | null;
   completed: boolean;
@@ -69,16 +61,19 @@ const priorityConfig = {
     label: "สูง",
     dot: "bg-red-500",
     text: "text-red-600",
+    soft: "bg-red-50",
   },
   medium: {
     label: "กลาง",
     dot: "bg-orange-400",
     text: "text-orange-600",
+    soft: "bg-orange-50",
   },
   low: {
     label: "ต่ำ",
     dot: "bg-emerald-500",
     text: "text-emerald-600",
+    soft: "bg-emerald-50",
   },
 };
 
@@ -86,24 +81,14 @@ export default function TasksClient({
   initialTasks,
   initialError,
 }: TasksClientProps) {
-  /*
-   * Create Supabase client once for this component instance.
-   * This avoids recreating the client during every render.
-   */
-  const [supabase] = useState(() => createClient());
+  const supabase = createClient();
 
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-
   const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
-
-  const [filter, setFilter] = useState<
-    "all" | "active" | "completed"
-  >("all");
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
 
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-
   const [form, setForm] = useState<TaskForm>(emptyForm);
 
   const [menuTask, setMenuTask] = useState<string | null>(null);
@@ -117,12 +102,8 @@ export default function TasksClient({
   const completed = tasks.filter((task) => task.completed).length;
   const active = total - completed;
 
-  /*
-   * Search + filter are calculated from the deferred search value
-   * so typing remains responsive when the task list becomes large.
-   */
   const filteredTasks = useMemo(() => {
-    const query = deferredSearch.trim().toLowerCase();
+    const query = search.trim().toLowerCase();
 
     return tasks.filter((task) => {
       const matchesSearch =
@@ -137,9 +118,9 @@ export default function TasksClient({
             ? !task.completed
             : task.completed;
 
-      return Boolean(matchesSearch && matchesFilter);
+      return matchesSearch && matchesFilter;
     });
-  }, [tasks, deferredSearch, filter]);
+  }, [tasks, search, filter]);
 
   function openAddModal() {
     setEditingTask(null);
@@ -177,24 +158,22 @@ export default function TasksClient({
     setForm(emptyForm);
   }
 
-  /*
-   * ------------------------------------------------------------
-   * CREATE / EDIT
-   * ------------------------------------------------------------
-   *
-   * UI updates immediately.
-   * Supabase runs in the background.
-   * If Supabase fails, the previous state is restored.
-   */
+  async function getCurrentUser() {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError) throw authError;
+    if (!user) throw new Error("กรุณาเข้าสู่ระบบก่อนจัดการงาน");
+
+    return user;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const title = form.title.trim();
-    const description = form.description.trim() || null;
-    const dueDate = form.due_date || null;
-    const priority = form.priority;
-
-    if (!title) {
+    if (!form.title.trim()) {
       setError("กรุณาใส่ชื่องาน");
       return;
     }
@@ -204,158 +183,111 @@ export default function TasksClient({
     setLoading(true);
     setError(null);
 
-    /*
-     * EDIT
-     */
-    if (editingTask) {
-      const previousTasks = tasks;
+    try {
+      const user = await getCurrentUser();
 
-      const optimisticTask: Task = {
-        ...editingTask,
-        title,
-        description,
-        priority,
-        due_date: dueDate,
-      };
+      if (editingTask) {
+        const previousTasks = tasks;
 
-      /*
-       * Update UI immediately.
-       */
-      setTasks((current) =>
-        current.map((task) =>
-          task.id === editingTask.id ? optimisticTask : task,
-        ),
-      );
+        const optimisticTask: Task = {
+          ...editingTask,
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          priority: form.priority,
+          due_date: form.due_date || null,
+        };
 
-      /*
-       * Close modal immediately for a faster feeling.
-       */
-      setModal(null);
-      setEditingTask(null);
-      setForm(emptyForm);
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === editingTask.id ? optimisticTask : task,
+          ),
+        );
 
-      try {
+        setModal(null);
+        setEditingTask(null);
+        setForm(emptyForm);
+
         const { data, error: updateError } = await supabase
           .from("tasks")
           .update({
-            title,
-            description,
-            priority,
-            due_date: dueDate,
+            title: form.title.trim(),
+            description: form.description.trim() || null,
+            priority: form.priority,
+            due_date: form.due_date || null,
           })
           .eq("id", editingTask.id)
+          .eq("user_id", user.id)
           .select("*")
           .single();
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          setTasks(previousTasks);
+          throw updateError;
+        }
 
-        /*
-         * Replace optimistic item with the actual database row.
-         */
         setTasks((current) =>
           current.map((task) =>
-            task.id === editingTask.id
-              ? (data as Task)
-              : task,
+            task.id === editingTask.id ? (data as Task) : task,
           ),
         );
-      } catch (err) {
-        /*
-         * Rollback if database update failed.
-         */
-        setTasks(previousTasks);
+      } else {
+        const temporaryId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? `temp-${crypto.randomUUID()}`
+            : `temp-${Date.now()}`;
 
-        setError(
-          err instanceof Error
-            ? err.message
-            : "ไม่สามารถบันทึกงานได้",
-        );
-      } finally {
-        setLoading(false);
-      }
-
-      return;
-    }
-
-    /*
-     * CREATE
-     */
-
-    const temporaryId =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? `temp-${crypto.randomUUID()}`
-        : `temp-${Date.now()}`;
-
-    const optimisticTask: Task = {
-      id: temporaryId,
-      title,
-      description,
-      priority,
-      due_date: dueDate,
-      completed: false,
-      created_at: new Date().toISOString(),
-    };
-
-    /*
-     * Show new task immediately.
-     */
-    setTasks((current) => [optimisticTask, ...current]);
-
-    /*
-     * Close modal immediately.
-     */
-    setModal(null);
-    setEditingTask(null);
-    setForm(emptyForm);
-
-    try {
-      const { data, error: insertError } = await supabase
-        .from("tasks")
-        .insert({
-          title,
-          description,
-          priority,
-          due_date: dueDate,
+        const optimisticTask: Task = {
+          id: temporaryId,
+          user_id: user.id,
+          title: form.title.trim(),
+          description: form.description.trim() || null,
+          priority: form.priority,
+          due_date: form.due_date || null,
           completed: false,
-        })
-        .select("*")
-        .single();
+          created_at: new Date().toISOString(),
+        };
 
-      if (insertError) throw insertError;
+        setTasks((current) => [optimisticTask, ...current]);
 
-      /*
-       * Replace temporary task with real database task.
-       */
-      setTasks((current) =>
-        current.map((task) =>
-          task.id === temporaryId
-            ? (data as Task)
-            : task,
-        ),
-      );
+        setModal(null);
+        setEditingTask(null);
+        setForm(emptyForm);
+
+        const { data, error: insertError } = await supabase
+          .from("tasks")
+          .insert({
+            user_id: user.id,
+            title: form.title.trim(),
+            description: form.description.trim() || null,
+            priority: form.priority,
+            due_date: form.due_date || null,
+            completed: false,
+          })
+          .select("*")
+          .single();
+
+        if (insertError) {
+          setTasks((current) =>
+            current.filter((task) => task.id !== temporaryId),
+          );
+          throw insertError;
+        }
+
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === temporaryId ? (data as Task) : task,
+          ),
+        );
+      }
     } catch (err) {
-      /*
-       * Remove optimistic task if insert failed.
-       */
-      setTasks((current) =>
-        current.filter((task) => task.id !== temporaryId),
-      );
-
       setError(
-        err instanceof Error
-          ? err.message
-          : "ไม่สามารถเพิ่มงานได้",
+        err instanceof Error ? err.message : "ไม่สามารถบันทึกงานได้",
       );
     } finally {
       setLoading(false);
     }
   }
 
-  /*
-   * ------------------------------------------------------------
-   * TOGGLE COMPLETE
-   * ------------------------------------------------------------
-   */
   async function toggleComplete(task: Task) {
     if (actionId) return;
 
@@ -365,44 +297,35 @@ export default function TasksClient({
     setActionId(task.id);
     setError(null);
 
-    /*
-     * Optimistic update.
-     */
     setTasks((current) =>
       current.map((item) =>
         item.id === task.id
-          ? {
-              ...item,
-              completed: nextCompleted,
-            }
+          ? { ...item, completed: nextCompleted }
           : item,
       ),
     );
 
     try {
+      const user = await getCurrentUser();
+
       const { data, error: updateError } = await supabase
         .from("tasks")
         .update({
           completed: nextCompleted,
         })
         .eq("id", task.id)
+        .eq("user_id", user.id)
         .select("*")
         .single();
 
       if (updateError) throw updateError;
 
-      /*
-       * Sync with actual database row.
-       */
       setTasks((current) =>
         current.map((item) =>
           item.id === task.id ? (data as Task) : item,
         ),
       );
     } catch (err) {
-      /*
-       * Rollback.
-       */
       setTasks(previousTasks);
 
       setError(
@@ -415,11 +338,6 @@ export default function TasksClient({
     }
   }
 
-  /*
-   * ------------------------------------------------------------
-   * DELETE
-   * ------------------------------------------------------------
-   */
   async function handleDelete() {
     if (!deleteTask || actionId) return;
 
@@ -429,32 +347,28 @@ export default function TasksClient({
     setActionId(taskToDelete.id);
     setError(null);
 
-    /*
-     * Close dialog + remove from UI immediately.
-     */
-    setDeleteTask(null);
-
     setTasks((current) =>
       current.filter((task) => task.id !== taskToDelete.id),
     );
 
     try {
+      const user = await getCurrentUser();
+
       const { error: deleteError } = await supabase
         .from("tasks")
         .delete()
-        .eq("id", taskToDelete.id);
+        .eq("id", taskToDelete.id)
+        .eq("user_id", user.id);
 
       if (deleteError) throw deleteError;
+
+      setDeleteTask(null);
+      setMenuTask(null);
     } catch (err) {
-      /*
-       * Restore deleted task if database request failed.
-       */
       setTasks(previousTasks);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "ไม่สามารถลบงานได้",
+        err instanceof Error ? err.message : "ไม่สามารถลบงานได้",
       );
     } finally {
       setActionId(null);
@@ -464,26 +378,18 @@ export default function TasksClient({
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-950">
       <div className="flex min-h-screen">
-        {/* =====================================================
-            DESKTOP SIDEBAR
-        ====================================================== */}
         <aside className="hidden w-[240px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
           <div className="px-6 py-7">
             <div className="text-lg font-bold tracking-tight">
               PERSONAL OS
             </div>
-
             <p className="mt-1 text-xs text-slate-400">
               Personal productivity system
             </p>
           </div>
 
           <nav className="space-y-1 px-3">
-            <NavItem
-              icon={<Home size={18} />}
-              label="Today"
-              href="/"
-            />
+            <NavItem icon={<Home size={18} />} label="Today" href="/" />
 
             <NavItem
               active
@@ -509,12 +415,6 @@ export default function TasksClient({
               label="Progress"
               href="/progress"
             />
-
-            <NavItem
-              icon={<WalletCards size={18} />}
-              label="Payments"
-              href="/payments"
-            />
           </nav>
 
           <div className="mt-auto px-3 pb-6">
@@ -526,12 +426,8 @@ export default function TasksClient({
           </div>
         </aside>
 
-        {/* =====================================================
-            MAIN
-        ====================================================== */}
         <main className="min-w-0 flex-1 pb-24 lg:pb-0">
           <div className="mx-auto max-w-[1200px] px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
-            {/* Header */}
             <header className="flex items-start justify-between gap-4">
               <div>
                 <p className="mb-1 text-xs font-medium uppercase tracking-[0.16em] text-slate-400">
@@ -550,41 +446,32 @@ export default function TasksClient({
               <button
                 type="button"
                 onClick={openAddModal}
-                className="hidden h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md active:translate-y-0 sm:flex"
+                className="hidden h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 sm:flex"
               >
                 <Plus size={18} />
                 เพิ่มงาน
               </button>
             </header>
 
-            {/* Error */}
             {error && (
               <div className="mt-6 flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                 <div>
-                  <p className="font-semibold">
-                    เกิดข้อผิดพลาด
-                  </p>
-
+                  <p className="font-semibold">เกิดข้อผิดพลาด</p>
                   <p className="mt-1">{error}</p>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => setError(null)}
-                  className="rounded-lg p-1 transition hover:bg-red-100"
-                  aria-label="ปิดข้อความผิดพลาด"
+                  className="rounded-lg p-1 hover:bg-red-100"
                 >
                   <X size={16} />
                 </button>
               </div>
             )}
 
-            {/* Stats */}
             <section className="mt-7 grid grid-cols-3 gap-2 sm:gap-4">
-              <StatCard
-                label="ทั้งหมด"
-                value={total}
-              />
+              <StatCard label="ทั้งหมด" value={total} />
 
               <StatCard
                 label="กำลังทำ"
@@ -599,7 +486,6 @@ export default function TasksClient({
               />
             </section>
 
-            {/* Search */}
             <section className="mt-6 flex gap-2">
               <div className="relative flex-1">
                 <Search
@@ -609,34 +495,21 @@ export default function TasksClient({
 
                 <input
                   value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="ค้นหางาน..."
-                  className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
                 />
               </div>
 
               <button
                 type="button"
-                onClick={() => {
-                  setFilter((current) =>
-                    current === "all"
-                      ? "active"
-                      : current === "active"
-                        ? "completed"
-                        : "all",
-                  );
-                }}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:text-slate-950 active:scale-95"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 aria-label="ตัวกรอง"
-                title="เปลี่ยนตัวกรอง"
               >
                 <Filter size={18} />
               </button>
             </section>
 
-            {/* Filter */}
             <div className="mt-4 flex rounded-xl bg-slate-100 p-1">
               <FilterButton
                 active={filter === "all"}
@@ -660,12 +533,9 @@ export default function TasksClient({
               </FilterButton>
             </div>
 
-            {/* List */}
             <section className="mt-8">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-bold">
-                  งานของคุณ
-                </h2>
+                <h2 className="text-sm font-bold">งานของคุณ</h2>
 
                 <span className="text-xs text-slate-400">
                   {filteredTasks.length} งาน
@@ -685,19 +555,13 @@ export default function TasksClient({
                       task={task}
                       actionLoading={actionId === task.id}
                       menuOpen={menuTask === task.id}
-                      onToggle={() =>
-                        toggleComplete(task)
-                      }
+                      onToggle={() => void toggleComplete(task)}
                       onMenu={() =>
                         setMenuTask((current) =>
-                          current === task.id
-                            ? null
-                            : task.id,
+                          current === task.id ? null : task.id,
                         )
                       }
-                      onEdit={() =>
-                        openEditModal(task)
-                      }
+                      onEdit={() => openEditModal(task)}
                       onDelete={() => {
                         setMenuTask(null);
                         setDeleteTask(task);
@@ -711,59 +575,29 @@ export default function TasksClient({
         </main>
       </div>
 
-      {/* =====================================================
-          MOBILE ADD
-      ====================================================== */}
       <button
         type="button"
         onClick={openAddModal}
-        className="fixed bottom-20 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-slate-950 text-white shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl active:scale-95 sm:hidden"
+        className="fixed bottom-20 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-slate-950 text-white shadow-lg sm:hidden"
         aria-label="เพิ่มงาน"
       >
         <Plus size={24} />
       </button>
 
-      {/* =====================================================
-          MOBILE NAV
-      ====================================================== */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-lg items-center justify-around">
-          <MobileNav
-            icon={<Home size={19} />}
-            label="Today"
-            href="/"
-          />
-
+          <MobileNav icon={<Home size={19} />} label="Today" />
           <MobileNav
             active
             icon={<CheckCircle2 size={19} />}
             label="Tasks"
-            href="/tasks"
           />
-
-          <MobileNav
-            icon={<Target size={19} />}
-            label="Goals"
-            href="/goals"
-          />
-
-          <MobileNav
-            icon={<Dumbbell size={19} />}
-            label="Workout"
-            href="/workout"
-          />
-
-          <MobileNav
-            icon={<MoreVertical size={19} />}
-            label="More"
-            href="/settings"
-          />
+          <MobileNav icon={<Target size={19} />} label="Goals" />
+          <MobileNav icon={<Dumbbell size={19} />} label="Workout" />
+          <MobileNav icon={<MoreVertical size={19} />} label="More" />
         </div>
       </nav>
 
-      {/* =====================================================
-          TASK MODAL
-      ====================================================== */}
       {modal && (
         <TaskModal
           mode={modal}
@@ -775,24 +609,17 @@ export default function TasksClient({
         />
       )}
 
-      {/* =====================================================
-          DELETE DIALOG
-      ====================================================== */}
       {deleteTask && (
         <DeleteDialog
           task={deleteTask}
           loading={actionId === deleteTask.id}
           onCancel={() => setDeleteTask(null)}
-          onConfirm={handleDelete}
+          onConfirm={() => void handleDelete()}
         />
       )}
     </div>
   );
 }
-
-/* ============================================================
-   NAV ITEM
-============================================================ */
 
 function NavItem({
   icon,
@@ -800,16 +627,15 @@ function NavItem({
   href,
   active = false,
 }: {
-  icon: ReactNode;
+  icon: React.ReactNode;
   label: string;
   href: string;
   active?: boolean;
 }) {
   return (
-    <Link
+    <a
       href={href}
-      prefetch
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
+      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
         active
           ? "bg-slate-100 font-semibold text-slate-950"
           : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
@@ -817,44 +643,30 @@ function NavItem({
     >
       {icon}
       {label}
-    </Link>
+    </a>
   );
 }
-
-/* ============================================================
-   MOBILE NAV
-============================================================ */
 
 function MobileNav({
   icon,
   label,
-  href,
   active = false,
 }: {
-  icon: ReactNode;
+  icon: React.ReactNode;
   label: string;
-  href: string;
   active?: boolean;
 }) {
   return (
-    <Link
-      href={href}
-      prefetch
-      className={`flex min-w-14 flex-col items-center gap-1 text-[10px] transition-all duration-200 ${
-        active
-          ? "font-semibold text-slate-950"
-          : "text-slate-400"
+    <div
+      className={`flex min-w-14 flex-col items-center gap-1 text-[10px] ${
+        active ? "font-semibold text-slate-950" : "text-slate-400"
       }`}
     >
       {icon}
       <span>{label}</span>
-    </Link>
+    </div>
   );
 }
-
-/* ============================================================
-   STAT CARD
-============================================================ */
 
 function StatCard({
   label,
@@ -866,14 +678,9 @@ function StatCard({
   dot?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm sm:p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center gap-2 text-xs text-slate-500">
-        {dot && (
-          <span
-            className={`h-2 w-2 rounded-full ${dot}`}
-          />
-        )}
-
+        {dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}
         {label}
       </div>
 
@@ -884,16 +691,12 @@ function StatCard({
   );
 }
 
-/* ============================================================
-   FILTER BUTTON
-============================================================ */
-
 function FilterButton({
   children,
   active,
   onClick,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
   active: boolean;
   onClick: () => void;
 }) {
@@ -901,7 +704,7 @@ function FilterButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
+      className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition ${
         active
           ? "bg-white text-slate-950 shadow-sm"
           : "text-slate-500 hover:text-slate-900"
@@ -911,10 +714,6 @@ function FilterButton({
     </button>
   );
 }
-
-/* ============================================================
-   TASK CARD
-============================================================ */
 
 function TaskCard({
   task,
@@ -933,34 +732,31 @@ function TaskCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const priorityKey =
-    task.priority === "high" ||
-    task.priority === "medium" ||
-    task.priority === "low"
-      ? task.priority
-      : "medium";
-
-  const priority = priorityConfig[priorityKey];
+  const priority =
+    priorityConfig[
+      task.priority === "high" ||
+      task.priority === "medium" ||
+      task.priority === "low"
+        ? task.priority
+        : "medium"
+    ];
 
   return (
     <article
-      className={`relative rounded-2xl border bg-white p-4 transition-all duration-200 ease-out sm:p-5 ${
+      className={`relative rounded-2xl border bg-white p-4 transition sm:p-5 ${
         task.completed
           ? "border-emerald-100 bg-emerald-50/30"
-          : "border-slate-200 hover:-translate-y-[1px] hover:border-slate-300 hover:shadow-sm"
+          : "border-slate-200 hover:border-slate-300"
       }`}
     >
       <div className="flex items-start gap-3">
-        {/* Complete */}
         <button
           type="button"
           onClick={onToggle}
           disabled={actionLoading}
-          className="mt-0.5 shrink-0 transition-transform duration-150 active:scale-90 disabled:cursor-wait"
+          className="mt-0.5 shrink-0"
           aria-label={
-            task.completed
-              ? "ทำเป็นยังไม่เสร็จ"
-              : "ทำเครื่องหมายว่าเสร็จ"
+            task.completed ? "ทำเป็นยังไม่เสร็จ" : "ทำเครื่องหมายว่าเสร็จ"
           }
         >
           {actionLoading ? (
@@ -970,24 +766,20 @@ function TaskCard({
             />
           ) : task.completed ? (
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
-              <Check
-                size={15}
-                strokeWidth={3}
-              />
+              <Check size={15} strokeWidth={3} />
             </span>
           ) : (
             <Circle
               size={24}
               strokeWidth={1.5}
-              className="text-slate-300 transition-colors hover:text-slate-500"
+              className="text-slate-300"
             />
           )}
         </button>
 
-        {/* Content */}
         <div className="min-w-0 flex-1">
           <h3
-            className={`text-sm font-semibold transition-all duration-200 sm:text-[15px] ${
+            className={`text-sm font-semibold sm:text-[15px] ${
               task.completed
                 ? "text-slate-400 line-through"
                 : "text-slate-900"
@@ -999,9 +791,7 @@ function TaskCard({
           {task.description && (
             <p
               className={`mt-1 line-clamp-2 text-xs leading-5 ${
-                task.completed
-                  ? "text-slate-400"
-                  : "text-slate-500"
+                task.completed ? "text-slate-400" : "text-slate-500"
               }`}
             >
               {task.description}
@@ -1015,7 +805,6 @@ function TaskCard({
               <span
                 className={`h-2 w-2 rounded-full ${priority.dot}`}
               />
-
               {priority.label}
             </span>
 
@@ -1028,12 +817,11 @@ function TaskCard({
           </div>
         </div>
 
-        {/* Menu */}
         <div className="relative">
           <button
             type="button"
             onClick={onMenu}
-            className="rounded-lg p-1.5 text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             aria-label="เมนูงาน"
           >
             <MoreVertical size={18} />
@@ -1044,7 +832,7 @@ function TaskCard({
               <button
                 type="button"
                 onClick={onEdit}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-slate-50"
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-slate-50"
               >
                 <Pencil size={14} />
                 แก้ไข
@@ -1053,7 +841,7 @@ function TaskCard({
               <button
                 type="button"
                 onClick={onDelete}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-600 transition-colors hover:bg-red-50"
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
               >
                 <Trash2 size={14} />
                 ลบงาน
@@ -1066,10 +854,6 @@ function TaskCard({
   );
 }
 
-/* ============================================================
-   EMPTY STATE
-============================================================ */
-
 function EmptyState({
   hasSearch,
   onAdd,
@@ -1080,16 +864,11 @@ function EmptyState({
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
-        <CheckCircle2
-          size={22}
-          className="text-slate-400"
-        />
+        <CheckCircle2 size={22} className="text-slate-400" />
       </div>
 
       <h3 className="mt-4 text-sm font-semibold">
-        {hasSearch
-          ? "ไม่พบงานที่ค้นหา"
-          : "ยังไม่มีงาน"}
+        {hasSearch ? "ไม่พบงานที่ค้นหา" : "ยังไม่มีงาน"}
       </h3>
 
       <p className="mt-1 text-xs text-slate-400">
@@ -1102,7 +881,7 @@ function EmptyState({
         <button
           type="button"
           onClick={onAdd}
-          className="mt-5 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
+          className="mt-5 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-semibold text-white"
         >
           เพิ่มงานแรก
         </button>
@@ -1110,10 +889,6 @@ function EmptyState({
     </div>
   );
 }
-
-/* ============================================================
-   TASK MODAL
-============================================================ */
 
 function TaskModal({
   mode,
@@ -1125,12 +900,10 @@ function TaskModal({
 }: {
   mode: "add" | "edit";
   form: TaskForm;
-  setForm: Dispatch<SetStateAction<TaskForm>>;
+  setForm: React.Dispatch<React.SetStateAction<TaskForm>>;
   loading: boolean;
   onClose: () => void;
-  onSubmit: (
-    event: FormEvent<HTMLFormElement>,
-  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/30 p-0 backdrop-blur-[2px] sm:items-center sm:p-4">
@@ -1138,11 +911,8 @@ function TaskModal({
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold">
-              {mode === "add"
-                ? "เพิ่มงาน"
-                : "แก้ไขงาน"}
+              {mode === "add" ? "เพิ่มงาน" : "แก้ไขงาน"}
             </h2>
-
             <p className="mt-1 text-xs text-slate-400">
               ข้อมูลงานจะถูกบันทึกลง Supabase
             </p>
@@ -1151,19 +921,13 @@ function TaskModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={loading}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 disabled:opacity-50"
-            aria-label="ปิด"
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
           >
             <X size={18} />
           </button>
         </div>
 
-        <form
-          onSubmit={onSubmit}
-          className="space-y-5"
-        >
-          {/* Title */}
+        <form onSubmit={onSubmit} className="space-y-5">
           <div>
             <label className="mb-2 block text-xs font-semibold">
               ชื่องาน
@@ -1179,11 +943,10 @@ function TaskModal({
                 }))
               }
               placeholder="เช่น สร้าง Landing Page"
-              className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition-all duration-200 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
             />
           </div>
 
-          {/* Description */}
           <div>
             <label className="mb-2 block text-xs font-semibold">
               รายละเอียด
@@ -1199,11 +962,10 @@ function TaskModal({
               }
               placeholder="รายละเอียดเพิ่มเติม..."
               rows={4}
-              className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none transition-all duration-200 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+              className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400"
             />
           </div>
 
-          {/* Priority + Date */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-xs font-semibold">
@@ -1216,24 +978,14 @@ function TaskModal({
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      priority:
-                        event.target
-                          .value as Priority,
+                      priority: event.target.value as Priority,
                     }))
                   }
-                  className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-10 text-sm outline-none transition-all duration-200 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                  className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-10 text-sm outline-none focus:border-slate-400"
                 >
-                  <option value="high">
-                    สูง
-                  </option>
-
-                  <option value="medium">
-                    กลาง
-                  </option>
-
-                  <option value="low">
-                    ต่ำ
-                  </option>
+                  <option value="high">สูง</option>
+                  <option value="medium">กลาง</option>
+                  <option value="low">ต่ำ</option>
                 </select>
 
                 <ChevronDown
@@ -1254,22 +1006,20 @@ function TaskModal({
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    due_date:
-                      event.target.value,
+                    due_date: event.target.value,
                   }))
                 }
-                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition-all duration-200 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400"
               />
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold transition-colors hover:bg-slate-50 disabled:opacity-50"
+              className="h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold hover:bg-slate-50"
             >
               ยกเลิก
             </button>
@@ -1277,13 +1027,10 @@ function TaskModal({
             <button
               type="submit"
               disabled={loading}
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-semibold text-white transition-all duration-200 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
             >
               {loading && (
-                <Loader2
-                  size={16}
-                  className="animate-spin"
-                />
+                <Loader2 size={16} className="animate-spin" />
               )}
 
               {mode === "add"
@@ -1296,10 +1043,6 @@ function TaskModal({
     </div>
   );
 }
-
-/* ============================================================
-   DELETE DIALOG
-============================================================ */
 
 function DeleteDialog({
   task,
@@ -1338,7 +1081,7 @@ function DeleteDialog({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold hover:bg-slate-50"
           >
             ยกเลิก
           </button>
@@ -1347,15 +1090,11 @@ function DeleteDialog({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-semibold text-white transition-all duration-200 hover:bg-red-700 disabled:cursor-wait disabled:opacity-60"
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
           >
             {loading && (
-              <Loader2
-                size={16}
-                className="animate-spin"
-              />
+              <Loader2 size={16} className="animate-spin" />
             )}
-
             ลบ
           </button>
         </div>
@@ -1364,13 +1103,10 @@ function DeleteDialog({
   );
 }
 
-/* ============================================================
-   DATE FORMATTER
-============================================================ */
-
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("th-TH", {
     day: "numeric",
     month: "short",
   }).format(new Date(`${date}T00:00:00`));
 }
+
