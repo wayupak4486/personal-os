@@ -18,6 +18,14 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    files: ["app/tasks/TasksClient.tsx"],
+    rules: {
+      // The temporary optimistic id is created inside a submit event handler;
+      // React's purity rule is overly broad for Date.now used in that handler.
+      "react-hooks/purity": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     ".next/**",
