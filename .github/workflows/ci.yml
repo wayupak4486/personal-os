@@ -9,14 +9,21 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    env:
+      # CI only needs valid-shaped public Supabase values so Next.js can prerender
+      # client components. Production/deployment environments must provide the
+      # real NEXT_PUBLIC_SUPABASE_* values.
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
